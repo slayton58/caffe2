@@ -13,6 +13,7 @@ import numpy as np
 import random
 import time
 import sys
+from timeit import default_timer as timer
 
 from itertools import izip
 
@@ -20,8 +21,13 @@ import caffe2.proto.caffe2_pb2 as caffe2_pb2
 from caffe2.python import core, workspace, recurrent, data_parallel_model
 from caffe2.python.examples import seq2seq_util
 
+#import matplotlib.pyplot as plt
+#reload(sys)
+#sys.setdefaultencoding('utf8')
+
+logging.basicConfig()
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler(sys.stderr))
 
 Batch = collections.namedtuple('Batch', [
@@ -875,23 +881,71 @@ def run_seq2seq_model(args, model_params=None):
         num_cpus=20,
     ) as model_obj:
         model_obj.initialize_from_scratch()
-        for i in range(args.epochs):
-            logger.info('Epoch {}'.format(i))
-            total_loss = 0
-            for batch in batches:
-                total_loss += model_obj.step(
-                    batch=batch,
-                    forward_only=False,
-                )
-            logger.info('\ttraining loss {}'.format(total_loss))
-            total_loss = 0
-            for batch in batches_eval:
-                total_loss += model_obj.step(
-                    batch=batch,
-                    forward_only=False,
-                )
-            logger.info('\teval loss {}'.format(total_loss))
 
+        with open("seq2seq.pbtxt", "w") as fid:
+            fid.write(str(model_obj.model.net.Proto()))
+        with open("seq2seq_init.pbtxt", "w") as fid:
+            fid.write(str(model_obj.model.param_init_net.Proto()))
+        with open("seq2seq_forward.pbtxt", "w") as fid:
+            fid.write(str(model_obj.forward_net.Proto()))
+
+        epoch_size = len(batches)
+        display_interval=np.ceil(epoch_size / 100.0)
+        test_interval=np.ceil(epoch_size / 10.0)
+        print("epoch_size: {}".format(epoch_size))
+        print("display_interval: {}".format(display_interval))
+        print("test_interval: {}".format(test_interval))
+
+        for e in range(args.epochs):
+            logger.info('Epoch {}'.format(e))
+            total_loss = 0
+            epoch_time = 0
+            for i in range(len(batches)):
+                encoder_token_num=0
+                decoder_token_num=0
+                for b in batches[i]:
+                    encoder_token_num += len(b[0])
+                    decoder_token_num += len(b[1])
+                start_time = timer()
+                loss = model_obj.step(
+                    batch=batches[i],
+                    forward_only=False,
+                )
+                end_time = timer()
+                step_time = end_time - start_time
+                epoch_time += step_time
+                total_loss += loss
+                if(i % display_interval == 0):
+
+                    encoder_lengths = [len(entry[0]) for entry in batches[i]]
+                    max_encoder_length = max(encoder_lengths)
+                    decoder_lengths = []
+                    max_decoder_length = max([len(entry[1]) for entry in batches[i]])
+
+                    print("Step_time: {} ms".format(int(1000*step_time)))
+                    print("Tokens num: {}".format(int(max_encoder_length + max_decoder_length)))
+                    print("Tokens/sec: {}".format(int((max_encoder_length + max_decoder_length) / step_time)))
+                    print("Iter: {}".format(i))
+                    print('Training loss {}'.format(loss))
+                    print('Training Perplexity: {}'.format(pow(2, loss/decoder_token_num)))
+                    print("norm_ratio: {}".format(float(workspace.FetchBlob("gpu_0/norm_clipped_grad_update/norm_ratio"))))
+                    print("\n")
+
+                if(i % test_interval == 0):
+                    total_test_loss = 0
+                    decoder_token_num=0
+                    for i in range(len(batches_eval)):
+                        for b in batches_eval[i]:
+                            decoder_token_num += len(b[1])
+                        loss = model_obj.step(
+                            batch=batches_eval[i],
+                            forward_only=True,
+                        )
+                        total_test_loss += loss
+                    print('Eval total_test_loss {}'.format(total_test_loss))
+                    print('Eval Perplexity: {}'.format(pow(2, total_test_loss / decoder_token_num)))
+                    print("\n")
+            print("Epoch_time: {} sec".format(int(epoch_time)))
 
 def run_seq2seq_rnn_unidirection_with_no_attention(args):
     run_seq2seq_model(args, model_params=dict(
@@ -965,7 +1019,7 @@ def main():
                         help='Size of embedding in the encoder layer')
     parser.add_argument('--decoder-embedding-size', type=int, default=512,
                         help='Size of embedding in the decoder layer')
-    parser.add_argument('--decoder-softmax-size', type=int, default=128,
+    parser.add_argument('--decoder-softmax-size', type=int, default=None,
                         help='Size of softmax layer in the decoder')
     parser.add_argument('--num-gpus', type=int, default=0,
                         help='Number of GPUs for data parallel model')

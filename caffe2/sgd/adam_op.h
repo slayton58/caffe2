@@ -133,8 +133,8 @@ class SparseAdamOp final : public Operator<Context> {
     Output(OUTPUT_MOMENT_1)->ResizeLike(Input(MOMENT_1));
     Output(OUTPUT_MOMENT_2)->ResizeLike(Input(MOMENT_2));
 
-    auto n = Input(GRAD).dim(0);
-    auto block_size = Input(GRAD).size() / n;
+    auto block_size = Input(PARAM).size() / Input(PARAM).dim(0);
+    auto n = Input(GRAD).size() / block_size;
 
     const auto* paramIn = Input(PARAM).template data<T>();
     const auto* indices = Input(INDICES).template data<SIndex>();
@@ -159,6 +159,10 @@ class SparseAdamOp final : public Operator<Context> {
       } else {
         auto offsetI = i * block_size;
         auto offsetIdx = idx * block_size;
+
+        CAFFE_ENFORCE(offsetIdx + block_size <= Input(PARAM).size());
+        CAFFE_ENFORCE(offsetI + block_size <= Input(GRAD).size());
+
         adam_compute(
             block_size,
             paramIn + offsetIdx,

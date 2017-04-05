@@ -5,6 +5,8 @@
 #include <thrust/system/cuda/detail/par.h>
 #include <thrust/version.h>
 
+#include <cub/cub.cuh>
+
 #include "caffe2/utils/math.h"
 #include "caffe2/core/context_gpu.h"
 
@@ -366,7 +368,10 @@ __global__ void SumKernel(const int N, const T* X, T* Y) {
 #define CAFFE2_MATH_SUM_FUNC(T)                                                \
 template<>                                                                     \
 void Sum<T, CUDAContext>(const int N, const T* x, T* y, CUDAContext* context) {\
-  SumKernel<<<1, SUM_KERNEL_NTHREADS, 0, context->cuda_stream()>>>(N, x, y);   \
+  size_t device_storage_bytes; \
+  cub::DeviceReduce::Sum(nullptr, device_storage_bytes, x, y, N, context->cuda_stream()); \
+  void *buffer = context->GetBuffer(device_storage_bytes); \
+  cub::DeviceReduce::Sum(buffer, device_storage_bytes, x, y, N, context->cuda_stream()); \
 }
 
 CAFFE2_MATH_SUM_FUNC(float)

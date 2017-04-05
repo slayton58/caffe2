@@ -26,7 +26,6 @@ enum class CudaMemoryPoolType {
  */
 CudaMemoryPoolType GetCudaMemoryPoolType();
 
-
 /**
  * A struct to host thread-local cuda objects.
  *
@@ -44,6 +43,7 @@ class ThreadLocalCUDAObjects {
       cuda_streams_[i] = vector<cudaStream_t>();
       cublas_handles_[i] = vector<cublasHandle_t>();
     }
+    temp_buffer_size_in_bytes_ = 0;
   }
 
   cudaStream_t GetStream(int gpu, int stream_id) {
@@ -77,6 +77,7 @@ class ThreadLocalCUDAObjects {
     }
     return gpu_handles[stream_id];
   }
+  void *GetBuffer(size_t nbytes);
 
   ~ThreadLocalCUDAObjects() noexcept {
     for (int i = 0; i < CAFFE2_COMPILE_TIME_MAX_GPUS; ++i) {
@@ -94,6 +95,10 @@ class ThreadLocalCUDAObjects {
   }
   vector<cudaStream_t> cuda_streams_[CAFFE2_COMPILE_TIME_MAX_GPUS];
   vector<cublasHandle_t> cublas_handles_[CAFFE2_COMPILE_TIME_MAX_GPUS];
+
+  // small buffer of temporary memory
+  size_t temp_buffer_size_in_bytes_;
+  void *temp_buffer_ = nullptr;
 };
 
 class CUDAContext final {
@@ -160,6 +165,11 @@ class CUDAContext final {
     return curand_generator_;
   }
 
+  // get per-thread temp buffer
+  void* GetBuffer(size_t nbytes) {
+    return cuda_objects_.GetBuffer(nbytes);
+  }
+
   static void* New(size_t nbytes);
 
   static void Delete(void* data);
@@ -222,6 +232,16 @@ inline void CPUContext::CopyBytes<CPUContext, CUDAContext>(
     size_t nbytes, const void* src, void* dst) {
   CUDAContext context(GetGPUIDForPointer(dst));
   context.CopyBytes<CPUContext, CUDAContext>(nbytes, src, dst);
+}
+
+inline void *ThreadLocalCUDAObjects::GetBuffer(size_t nbytes) {
+  if ((nbytes > temp_buffer_size_in_bytes_) ||
+      (temp_buffer_ == nullptr)) {
+    temp_buffer_size_in_bytes_ = nbytes;
+    CUDAContext::Delete(temp_buffer_);
+    temp_buffer_ = CUDAContext::New(temp_buffer_size_in_bytes_);
+  }
+  return temp_buffer_;
 }
 
 /**

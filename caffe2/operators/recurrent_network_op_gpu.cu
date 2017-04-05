@@ -55,7 +55,6 @@ void initializeRecurrentInput<float,CUDAContext>(
   // States at [0, ..., T] (inclusive)
   state->Resize(seqLen + 1, batchSize, stateSize);
 
-  NVTX_RANGE_PUSH("initializeRecurrentInput");
   if (input.ndim() == 3) {
     CAFFE_ENFORCE_EQ(input.dim(0), 1, rc.input);
   }
@@ -71,7 +70,6 @@ void initializeRecurrentInput<float,CUDAContext>(
         input.data<float>(),
         state->mutable_data<float>());
   }
-  NVTX_RANGE_POP();
 }
 
 }; // namespace detail

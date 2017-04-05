@@ -42,8 +42,9 @@ class ThreadLocalCUDAObjects {
     for (int i = 0; i < CAFFE2_COMPILE_TIME_MAX_GPUS; ++i) {
       cuda_streams_[i] = vector<cudaStream_t>();
       cublas_handles_[i] = vector<cublasHandle_t>();
+      temp_buffer_size_in_bytes_[i] = 0;
+      temp_buffer_[i] = nullptr;
     }
-    temp_buffer_size_in_bytes_ = 0;
   }
 
   cudaStream_t GetStream(int gpu, int stream_id) {
@@ -77,7 +78,7 @@ class ThreadLocalCUDAObjects {
     }
     return gpu_handles[stream_id];
   }
-  void *GetBuffer(size_t nbytes);
+  void *GetBuffer(int gpu, size_t nbytes);
 
   ~ThreadLocalCUDAObjects() noexcept {
     for (int i = 0; i < CAFFE2_COMPILE_TIME_MAX_GPUS; ++i) {
@@ -97,8 +98,8 @@ class ThreadLocalCUDAObjects {
   vector<cublasHandle_t> cublas_handles_[CAFFE2_COMPILE_TIME_MAX_GPUS];
 
   // small buffer of temporary memory
-  size_t temp_buffer_size_in_bytes_;
-  void *temp_buffer_ = nullptr;
+  size_t temp_buffer_size_in_bytes_[CAFFE2_COMPILE_TIME_MAX_GPUS];
+  void *temp_buffer_[CAFFE2_COMPILE_TIME_MAX_GPUS];
 };
 
 class CUDAContext final {
@@ -167,7 +168,7 @@ class CUDAContext final {
 
   // get per-thread temp buffer
   void* GetBuffer(size_t nbytes) {
-    return cuda_objects_.GetBuffer(nbytes);
+    return cuda_objects_.GetBuffer(gpu_id_, nbytes);
   }
 
   static void* New(size_t nbytes);
@@ -234,14 +235,15 @@ inline void CPUContext::CopyBytes<CPUContext, CUDAContext>(
   context.CopyBytes<CPUContext, CUDAContext>(nbytes, src, dst);
 }
 
-inline void *ThreadLocalCUDAObjects::GetBuffer(size_t nbytes) {
-  if ((nbytes > temp_buffer_size_in_bytes_) ||
-      (temp_buffer_ == nullptr)) {
-    temp_buffer_size_in_bytes_ = nbytes;
-    CUDAContext::Delete(temp_buffer_);
-    temp_buffer_ = CUDAContext::New(temp_buffer_size_in_bytes_);
+inline void *ThreadLocalCUDAObjects::GetBuffer(int gpu, size_t nbytes) {
+  DeviceGuard guard(gpu);
+  if ((nbytes > temp_buffer_size_in_bytes_[gpu]) ||
+      (temp_buffer_[gpu] == nullptr)) {
+    temp_buffer_size_in_bytes_[gpu] = nbytes;
+    CUDAContext::Delete(temp_buffer_[gpu]);
+    temp_buffer_[gpu] = CUDAContext::New(temp_buffer_size_in_bytes_[gpu]);
   }
-  return temp_buffer_;
+  return temp_buffer_[gpu];
 }
 
 /**

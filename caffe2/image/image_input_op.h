@@ -224,6 +224,7 @@ ImageInputOp<Context>::ImageInputOp(
       "Must provide [scale_min, scale_max]");
   CAFFE_ENFORCE_GE(random_scale_[1], random_scale_[0],
       "random scale must provide a range [min, max]");
+
   if (default_arg_.bounding_params.ymin < 0
       || default_arg_.bounding_params.xmin < 0
       || default_arg_.bounding_params.height < 0
@@ -258,7 +259,7 @@ ImageInputOp<Context>::ImageInputOp(
       default_arg_.bounding_params.width
               << ")";
   }
-  if (scale_ > 0) {
+  if (scale_ > 0 && !random_scaling) {
     LOG(INFO) << "    Scaling image to " << scale_
               << (warp_ ? " with " : " without ") << "warping;";
   } else {

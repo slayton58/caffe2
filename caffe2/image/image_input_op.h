@@ -259,7 +259,7 @@ ImageInputOp<Context>::ImageInputOp(
       default_arg_.bounding_params.width
               << ")";
   }
-  if (scale_ > 0 && !random_scaling) {
+  if (scale_ > 0 && !random_scaling_) {
     LOG(INFO) << "    Scaling image to " << scale_
               << (warp_ ? " with " : " without ") << "warping;";
   } else {

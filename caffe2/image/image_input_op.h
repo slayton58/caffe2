@@ -99,6 +99,7 @@ class ImageInputOp final
   bool use_caffe_datum_;
   bool gpu_transform_;
   bool mean_std_copied_ = false;
+  bool modified_resize_;
 
   // random minsize
   vector<int> random_scale_;
@@ -148,7 +149,10 @@ ImageInputOp<Context>::ImageInputOp(
       output_type_(
           cast::GetCastDataType(ArgumentHelper(operator_def), "output_type")),
       random_scale_(
-          OperatorBase::template GetRepeatedArgument<int>("random_scale", {-1,-1})) {
+          OperatorBase::template GetRepeatedArgument<int>("random_scale", {-1,-1})),
+      modified_resize_(
+          OperatorBase::template GetSingleArgument<int>("modified_resize", 0)) {
+  // handle default random scaling case
   if ((random_scale_[0] == -1) || (random_scale_[1] == -1)) {
     random_scaling_ = false;
   } else {
@@ -562,19 +566,53 @@ bool ImageInputOp<Context>::GetImageAndLabelAndInfoFromDBValue(
   if ((scale_ > 0 ||
        ((scaled_height != img->rows || scaled_width != img->cols))
       || (scaled_height > img->rows || scaled_width > img->cols))) {
-    // We rescale in all cases if we are using scale_
-    // but only to make the image bigger if using minsize_
-    //
-    //LOG(INFO) << "Scaling to " << scaled_width << " x " << scaled_height
-    //          << " From " << img->cols << " x " << img->rows;
-    cv::resize(
-        *img,
-        scaled_img,
-        cv::Size(scaled_width, scaled_height),
-        0,
-        0,
-        cv::INTER_AREA);
-    *img = scaled_img;
+    // modified scaling code
+    // If we're going to crop afterwards, take advantage by resizing
+    // to crop_size shortest-side, with an ROI to ensure the same
+    // data is used as if we resized to [256,480] shortest-side and later cropped
+    // Only use during training
+    if (modified_resize_ && !is_test_ && crop_ > 0) {
+      // additional logic - take a roi and resize to 224 x * or * x 224
+      float ratio = (img->rows > img->cols) ? float(scale_to_use) / img->cols : float(scale_to_use) / img->rows;
+
+      // rows -> y, cols -> x
+      int roi_x, roi_y;
+
+      if (img->rows > img->cols) {
+        roi_x = int(crop_);
+        roi_y = int(crop_ * img->rows / scaled_width);
+      } else {
+        roi_x = int(crop_* img->cols / scaled_height);
+        roi_y = int(crop_);
+      }
+
+      //LOG(INFO) << "Scaling to " << roi_x << " x " << roi_y
+      //          << " From " << img->cols << " x " << img->rows;
+
+      int roi_x_offset = std::uniform_int_distribution<>(0, img->cols - roi_x)(*randgen);
+      int roi_y_offset = std::uniform_int_distribution<>(0, img->rows - roi_y)(*randgen);
+      cv::Rect ROI(roi_x_offset, roi_y_offset, roi_x, roi_y);
+
+      cv::Mat img_roi = (*img)(ROI);
+
+      cv::resize(
+          img_roi,
+          scaled_img,
+          cv::Size(roi_x, roi_y),
+          0,
+          0,
+          cv::INTER_LINEAR);
+      *img = scaled_img;
+    } else {
+      cv::resize(
+          *img,
+          scaled_img,
+          cv::Size(scaled_width, scaled_height),
+          0,
+          0,
+          cv::INTER_AREA);
+      *img = scaled_img;
+    }
   }
 
   // TODO(Yangqing): return false if any error happens.

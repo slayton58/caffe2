@@ -117,7 +117,6 @@ class ImageInputOp final
 
 template <class Context>
 ImageInputOp<Context>::ImageInputOp(
-<<<<<<< 50658474b7fb424d27d4d3958c455f9044c654e4
     const OperatorDef& operator_def,
     Workspace* ws)
     : PrefetchOperator<Context>(operator_def, ws),
@@ -149,7 +148,7 @@ ImageInputOp<Context>::ImageInputOp(
       output_type_(
           cast::GetCastDataType(ArgumentHelper(operator_def), "output_type")),
       random_scale_(
-          OperatorBase::template GetRepeatedArgument<int>("random_scale", {-1,-1}))
+          OperatorBase::template GetRepeatedArgument<int>("random_scale", {-1,-1})) {
   if ((random_scale_[0] == -1) || (random_scale_[1] == -1)) {
     random_scaling_ = false;
   } else {
